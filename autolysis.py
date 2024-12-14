@@ -39,11 +39,13 @@ signal.signal(signal.SIGALRM, timeout_handler)
 def generate_llm_prompt(data_summary, null_values):
     return (
         f"You are a data analyst. Analyze the dataset described below and provide insights. "
-        f"The response should include:
-        1. Patterns or anomalies in the data.
-        2. Key statistical findings.
-        3. Implications of these findings.
-        \nDataset Summary:\n{data_summary}\n\nNull Values Summary:\n{null_values}\n\nEnsure insights are clear, concise, and actionable."
+        f"The response should include:\n"
+        f"1. Patterns or anomalies in the data.\n"
+        f"2. Key statistical findings.\n"
+        f"3. Implications of these findings.\n\n"
+        f"Dataset Summary:\n{data_summary}\n\n"
+        f"Null Values Summary:\n{null_values}\n\n"
+        f"Ensure insights are clear, concise, and actionable."
     )
 
 # Analyze dataset with reproducibility
