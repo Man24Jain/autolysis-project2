@@ -7,6 +7,8 @@ import openai
 from tabulate import tabulate
 from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
+import cv2
+import numpy as np
 
 # Ensure seaborn is installed
 def ensure_dependencies():
@@ -44,13 +46,37 @@ def generate_llm_prompt(data_summary, analysis_results):
         f"\nProvide insights, implications, and suggest further analysis."
     )
 
+# Perform OCR-based image processing
+def analyze_image(image_path):
+    try:
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        _, thresholded = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)
+        contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        features = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            features.append((x, y, w, h))
+
+        annotated_image_path = f"{os.path.splitext(image_path)[0]}_annotated.png"
+        annotated_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        for (x, y, w, h) in features:
+            cv2.rectangle(annotated_image, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        cv2.imwrite(annotated_image_path, annotated_image)
+
+        return features, annotated_image_path
+
+    except Exception as e:
+        print(f"Error during image analysis: {e}")
+        return None, None
+
 # Analyze dataset
 def analyze_dataset(file_path):
     try:
         data = pd.read_csv(file_path)
         summary = data.describe(include='all').transpose()
         null_values = data.isnull().sum()
-        
+
         # Correlation heatmap
         plt.figure(figsize=(10, 6))
         correlation = data.corr()
@@ -76,7 +102,7 @@ def analyze_dataset(file_path):
         sys.exit(1)
 
 # Generate README
-def generate_readme(file_path, summary, null_values, insights):
+def generate_readme(file_path, summary, null_values, insights, additional_visuals=[]):
     readme_content = (
         f"# Analysis Report for {file_path}\n\n"
         f"## Dataset Summary\n"
@@ -84,8 +110,12 @@ def generate_readme(file_path, summary, null_values, insights):
         f"## Null Values\n"
         f"{tabulate(null_values.reset_index(), headers=['Column', 'Null Values'], tablefmt='github')}\n\n"
         f"## Insights and Implications\n"
-        f"{insights}\n"
+        f"{insights}\n\n"
+        f"## Visualizations\n"
     )
+
+    for visual_path in additional_visuals:
+        readme_content += f"![Visualization]({visual_path})\n\n"
 
     readme_path = f"{os.path.splitext(file_path)[0]}_README.md"
     with open(readme_path, "w") as f:
@@ -114,27 +144,32 @@ def interact_with_llm(prompt):
 
 # Main function
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python autolysis.py <dataset.csv>")
+    if len(sys.argv) != 3:
+        print("Usage: python autolysis.py <dataset.csv> <image_path>")
         sys.exit(1)
 
     file_path = sys.argv[1]
+    image_path = sys.argv[2]
 
     data, summary, null_values, heatmap_path = analyze_dataset(file_path)
-    
+
+    features, annotated_image_path = analyze_image(image_path)
+    if features:
+        print(f"Image analysis identified {len(features)} features. Annotated image saved at {annotated_image_path}.")
+
     # Dynamic prompt generation and interaction
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
     prompt = generate_llm_prompt(data_summary, null_summary)
-    
+
     try:
         insights = interact_with_llm(prompt)
     except Exception as e:
         print(f"Failed to get insights from LLM: {e}")
         sys.exit(1)
 
-    # Generate README
-    generate_readme(file_path, summary, null_values, insights)
+    # Generate README with additional visuals
+    generate_readme(file_path, summary, null_values, insights, [heatmap_path, annotated_image_path])
 
 if __name__ == "__main__":
-    main()  
+    main()
