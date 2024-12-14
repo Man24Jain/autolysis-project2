@@ -7,14 +7,15 @@ import openai
 from tabulate import tabulate
 from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
+import subprocess
 
 # Ensure seaborn is installed
 def ensure_dependencies():
     try:
         import seaborn
     except ImportError:
-        print("Seaborn is not installed. Please install it using 'pip install seaborn'.")
-        sys.exit(1)
+        print("Seaborn is not installed. Installing now...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "seaborn"])
 
 ensure_dependencies()
 
@@ -54,7 +55,7 @@ def analyze_dataset(file_path):
         data = pd.read_csv(file_path)
         summary = data.describe(include='all').transpose()
         null_values = data.isnull().sum()
-        
+
         # Correlation heatmap
         plt.figure(figsize=(10, 6))
         correlation = data.corr()
@@ -105,7 +106,9 @@ def interact_with_llm(prompt):
         response = openai.Completion.create(
             engine="gpt-4o-mini",
             prompt=prompt,
-            max_tokens=750
+            max_tokens=1500,  # Increased token limit for thorough analysis
+            temperature=0.7,  # Added variability for richer responses
+            n=1
         )
         signal.alarm(0)  # Disable timeout after success
         return response.choices[0].text.strip()
@@ -125,12 +128,12 @@ def main():
     file_path = sys.argv[1]
 
     data, summary, null_values, heatmap_path = analyze_dataset(file_path)
-    
+
     # Dynamic prompt generation and interaction
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
     prompt = generate_llm_prompt(data_summary, null_summary)
-    
+
     try:
         insights = interact_with_llm(prompt)
     except Exception as e:
