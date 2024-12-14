@@ -1,16 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "seaborn",
-#   "pandas",
-#   "matplotlib",
-#   "openai",
-#   "tabulate",
-#   "tenacity",
-#   "numpy",
-# ]
-# ///
-
 import os
 import sys
 import pandas as pd
@@ -22,9 +9,9 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
 import subprocess
 
-# Ensure dependencies
+# Ensure dependencies are installed
 def ensure_dependencies():
-    dependencies = ["seaborn", "pandas", "matplotlib", "openai", "tabulate", "tenacity"]
+    dependencies = ["seaborn", "pandas", "matplotlib", "openai", "tabulate", "tenacity", "numpy"]
     for dep in dependencies:
         try:
             __import__(dep)
@@ -51,14 +38,14 @@ def timeout_handler(signum, frame):
 
 signal.signal(signal.SIGALRM, timeout_handler)
 
-# Dynamic prompt generation with storytelling
+# Generate LLM prompt
 def generate_llm_prompt(data_summary, null_values):
     return (
         f"You are an AI data storyteller. Analyze the dataset below and provide insights in a "
         f"narrative format that includes:\n"
         f"1. Patterns and anomalies in the data.\n"
         f"2. Key statistical findings presented clearly.\n"
-        f"3. Recommendations for a CEO or decision-maker.\n\n"
+        f"3. Recommendations for decision-makers.\n\n"
         f"Dataset Summary:\n{data_summary}\n\n"
         f"Null Values Summary:\n{null_values}\n\n"
         f"Ensure the output is engaging, structured, and actionable."
@@ -71,7 +58,7 @@ def analyze_dataset(file_path):
         summary = data.describe(include='all').transpose()
         null_values = data.isnull().sum()
 
-        # Correlation heatmap
+        # Generate correlation heatmap
         plt.figure(figsize=(10, 6))
         correlation = data.corr()
         sns.heatmap(correlation, annot=True, cmap="coolwarm", fmt=".2f")
@@ -80,7 +67,7 @@ def analyze_dataset(file_path):
         plt.savefig(heatmap_path)
         plt.close()
 
-        # Outlier detection
+        # Generate boxplots for numeric columns
         for col in data.select_dtypes(include=['float64', 'int64']).columns:
             plt.figure(figsize=(10, 4))
             sns.boxplot(x=data[col])
@@ -96,6 +83,7 @@ def analyze_dataset(file_path):
         sys.exit(1)
 
 # Generate README
+
 def generate_readme(file_path, summary, null_values, insights):
     readme_content = (
         f"# Analysis Report for {file_path}\n\n"
@@ -113,15 +101,15 @@ def generate_readme(file_path, summary, null_values, insights):
 
     print(f"README generated at {readme_path}")
 
-# Interact with LLM with retries and budget control
+# Interact with LLM
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def interact_with_llm(prompt):
     try:
-        signal.alarm(120)  # Timeout set to 120 seconds
+        signal.alarm(120)  # Set timeout for LLM interaction
         response = openai.Completion.create(
             engine="gpt-4o-mini",
             prompt=prompt,
-            max_tokens=1500,
+            max_tokens=2000,  # Increased token limit
             temperature=0.7,
             n=1
         )
@@ -137,7 +125,7 @@ def interact_with_llm(prompt):
 # Main function
 def main():
     if len(sys.argv) != 2:
-        print("Usage: uv run autolysis.py <dataset.csv>")
+        print("Usage: python autolysis.py <dataset.csv>")
         sys.exit(1)
 
     file_path = sys.argv[1]
