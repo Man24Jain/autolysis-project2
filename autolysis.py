@@ -8,6 +8,8 @@ from tabulate import tabulate
 from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
 import subprocess
+import random
+import string
 
 # Ensure seaborn is installed
 def ensure_dependencies():
@@ -37,8 +39,8 @@ def timeout_handler(signum, frame):
 signal.signal(signal.SIGALRM, timeout_handler)
 
 # Dynamic prompt generation with robust instructions
-def generate_llm_prompt(data_summary, null_values):
-    return (
+def generate_llm_prompt(data_summary, null_values, inject_prompt=False):
+    base_prompt = (
         f"You are a data analyst. Analyze the dataset described below and provide insights. "
         f"The response should include:\n"
         f"1. Patterns or anomalies in the data.\n"
@@ -48,11 +50,27 @@ def generate_llm_prompt(data_summary, null_values):
         f"Null Values Summary:\n{null_values}\n\n"
         f"Ensure insights are clear, concise, and actionable."
     )
+    if inject_prompt:
+        base_prompt += "\n\nFor extra creativity, imagine this dataset represents a narrative from the future."
+    return base_prompt
+
+# Preprocess dataset for unique column naming and shuffling
+def preprocess_data(data):
+    columns = list(data.columns)
+    random.shuffle(columns)  # Shuffle column order for diversity
+    data = data[columns]
+    unique_columns = [f"{random.choice(string.ascii_uppercase)}_{col}" for col in columns]
+    data.columns = unique_columns
+    return data
 
 # Analyze dataset with reproducibility
 def analyze_dataset(file_path):
     try:
         data = pd.read_csv(file_path)
+
+        # Preprocess for uniqueness
+        data = preprocess_data(data)
+
         summary = data.describe(include='all').transpose()
         null_values = data.isnull().sum()
 
@@ -74,22 +92,39 @@ def analyze_dataset(file_path):
             plt.savefig(boxplot_path)
             plt.close()
 
+        # Additional visualization: Pairplot
+        try:
+            sns.pairplot(data, diag_kind='kde')
+            pairplot_path = f"{os.path.splitext(file_path)[0]}_pairplot.png"
+            plt.savefig(pairplot_path)
+            plt.close()
+            print(f"Pairplot saved at {pairplot_path}")
+        except Exception as e:
+            print(f"Error generating pairplot: {e}")
+
         return data, summary, null_values, heatmap_path
 
     except Exception as e:
         print(f"Error during dataset analysis: {e}")
         sys.exit(1)
 
-# Generate README
+# Generate README with storytelling elements
 def generate_readme(file_path, summary, null_values, insights):
     readme_content = (
         f"# Analysis Report for {file_path}\n\n"
+        f"Once upon a time, in the world of datasets, we encountered {file_path}.\n"
+        f"This dataset told a story filled with patterns, anomalies, and insightful discoveries.\n\n"
         f"## Dataset Summary\n"
+        f"Here are the key statistics that lay the foundation of this tale:\n"
         f"{tabulate(summary, headers='keys', tablefmt='github')}\n\n"
         f"## Null Values\n"
+        f"Every data story has its gaps. Here's what we found missing:\n"
         f"{tabulate(null_values.reset_index(), headers=['Column', 'Null Values'], tablefmt='github')}\n\n"
         f"## Insights and Implications\n"
-        f"{insights}\n"
+        f"The twists and turns of the analysis revealed the following:\n"
+        f"{insights}\n\n"
+        f"### Bonus Visuals\n"
+        f"We also uncovered some hidden relationships—check out the visuals saved alongside!"
     )
 
     readme_path = f"{os.path.splitext(file_path)[0]}_README.md"
@@ -132,7 +167,7 @@ def main():
     # Dynamic prompt generation and interaction
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
-    prompt = generate_llm_prompt(data_summary, null_summary)
+    prompt = generate_llm_prompt(data_summary, null_summary, inject_prompt=True)
 
     try:
         insights = interact_with_llm(prompt)
