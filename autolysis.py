@@ -36,12 +36,14 @@ def set_openai_api():
 set_openai_api()
 
 # Dynamic prompt generation
-def generate_llm_prompt(data_summary, analysis_results):
+def generate_llm_prompt(data_summary, null_summary, skewness, kurtosis):
     return (
-        f"You are an expert data analyst. Analyze the following dataset summary and results:\n"
-        f"\nDataset Summary:\n{data_summary}\n"
-        f"\nAnalysis Results:\n{analysis_results}\n"
-        f"\nProvide detailed insights, implications, and suggest further analyses. Ensure results are logical and actionable."
+        f"You are an expert data analyst. Analyze the following dataset:\n\n"
+        f"Dataset Summary:\n{data_summary}\n\n"
+        f"Null Values:\n{null_summary}\n\n"
+        f"Skewness and Kurtosis:\n"
+        f"Skewness:\n{skewness}\nKurtosis:\n{kurtosis}\n\n"
+        f"Provide detailed insights, implications, and suggest further analyses. Ensure results are logical and actionable."
     )
 
 # Retry mechanism for LLM interaction
@@ -87,7 +89,7 @@ def analyze_dataset(file_path):
         else:
             heatmap_path = None
 
-        # Outlier detection
+        # Outlier detection (only for numeric columns)
         for col in numeric_cols.columns:
             plt.figure(figsize=(10, 4))
             sns.boxplot(x=data[col])
@@ -130,12 +132,15 @@ def main():
 
     file_path = sys.argv[1]
 
+    # Dataset Analysis
     data, summary, null_values, skewness, kurtosis, heatmap_path = analyze_dataset(file_path)
 
     # Generate prompt and interact with LLM
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
-    prompt = generate_llm_prompt(data_summary, null_summary)
+    skewness_summary = skewness.to_string()
+    kurtosis_summary = kurtosis.to_string()
+    prompt = generate_llm_prompt(data_summary, null_summary, skewness_summary, kurtosis_summary)
     insights = interact_with_llm(prompt)
 
     # Generate README
