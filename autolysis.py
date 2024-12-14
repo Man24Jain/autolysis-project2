@@ -5,7 +5,7 @@ import openai
 import os
 
 # Set OpenAI API key (make sure to set your key here)
-openai.api_key = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjIyZjMwMDA4NTJAZHMuc3R1ZHkuaWl0bS5hYy5pbiJ9.j20JpSkBVdolU8Npow1aEV4FY9e2NLC_Yvuzydx4viQ"
+openai.api_key = "your-api-key"
 
 def load_dataset(file_path):
     """Loads the dataset from the given file path."""
