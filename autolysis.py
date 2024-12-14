@@ -1,3 +1,16 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "seaborn",
+#   "pandas",
+#   "matplotlib",
+#   "openai",
+#   "tabulate",
+#   "tenacity",
+#   "numpy",
+# ]
+# ///
+
 import os
 import sys
 import pandas as pd
@@ -9,21 +22,23 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
 import subprocess
 
-# Ensure seaborn is installed
+# Ensure dependencies
 def ensure_dependencies():
-    try:
-        import seaborn
-    except ImportError:
-        print("Seaborn is not installed. Installing now...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "seaborn"])
+    dependencies = ["seaborn", "pandas", "matplotlib", "openai", "tabulate", "tenacity"]
+    for dep in dependencies:
+        try:
+            __import__(dep)
+        except ImportError:
+            print(f"{dep} is not installed. Installing now...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
 
 ensure_dependencies()
 
-# Set API token securely
+# Set OpenAI API key
 def set_openai_api():
     openai.api_key = os.getenv("AIPROXY_TOKEN")
     if not openai.api_key:
-        raise EnvironmentError("Please set the AIPROXY_TOKEN environment variable with your OpenAI API key.")
+        raise EnvironmentError("Please set the AIPROXY_TOKEN environment variable.")
 
 set_openai_api()
 
@@ -36,20 +51,20 @@ def timeout_handler(signum, frame):
 
 signal.signal(signal.SIGALRM, timeout_handler)
 
-# Dynamic prompt generation with robust instructions
+# Dynamic prompt generation with storytelling
 def generate_llm_prompt(data_summary, null_values):
     return (
-        f"You are a data analyst. Analyze the dataset described below and provide insights. "
-        f"The response should include:\n"
-        f"1. Patterns or anomalies in the data.\n"
-        f"2. Key statistical findings.\n"
-        f"3. Implications of these findings.\n\n"
+        f"You are an AI data storyteller. Analyze the dataset below and provide insights in a "
+        f"narrative format that includes:\n"
+        f"1. Patterns and anomalies in the data.\n"
+        f"2. Key statistical findings presented clearly.\n"
+        f"3. Recommendations for a CEO or decision-maker.\n\n"
         f"Dataset Summary:\n{data_summary}\n\n"
         f"Null Values Summary:\n{null_values}\n\n"
-        f"Ensure insights are clear, concise, and actionable."
+        f"Ensure the output is engaging, structured, and actionable."
     )
 
-# Analyze dataset with reproducibility
+# Analyze dataset
 def analyze_dataset(file_path):
     try:
         data = pd.read_csv(file_path)
@@ -88,7 +103,7 @@ def generate_readme(file_path, summary, null_values, insights):
         f"{tabulate(summary, headers='keys', tablefmt='github')}\n\n"
         f"## Null Values\n"
         f"{tabulate(null_values.reset_index(), headers=['Column', 'Null Values'], tablefmt='github')}\n\n"
-        f"## Insights and Implications\n"
+        f"## Insights and Recommendations\n"
         f"{insights}\n"
     )
 
@@ -98,16 +113,16 @@ def generate_readme(file_path, summary, null_values, insights):
 
     print(f"README generated at {readme_path}")
 
-# Interact with LLM with retry mechanism
+# Interact with LLM with retries and budget control
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def interact_with_llm(prompt):
     try:
-        signal.alarm(120)  # Set timeout for LLM interaction
+        signal.alarm(120)  # Timeout set to 120 seconds
         response = openai.Completion.create(
             engine="gpt-4o-mini",
             prompt=prompt,
-            max_tokens=1500,  # Increased token limit for thorough analysis
-            temperature=0.7,  # Added variability for richer responses
+            max_tokens=1500,
+            temperature=0.7,
             n=1
         )
         signal.alarm(0)  # Disable timeout after success
@@ -129,7 +144,7 @@ def main():
 
     data, summary, null_values, heatmap_path = analyze_dataset(file_path)
 
-    # Dynamic prompt generation and interaction
+    # Generate prompt and interact with LLM
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
     prompt = generate_llm_prompt(data_summary, null_summary)
@@ -144,4 +159,4 @@ def main():
     generate_readme(file_path, summary, null_values, insights)
 
 if __name__ == "__main__":
-    main() 
+    main()
