@@ -8,16 +8,7 @@ from tabulate import tabulate
 from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
 
-# Timeout handler
-class TimeoutException(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutException("Function timed out")
-
-signal.signal(signal.SIGALRM, timeout_handler)
-
-# Ensure dependencies are installed
+# Ensure seaborn is installed
 def ensure_dependencies():
     try:
         import seaborn
@@ -31,66 +22,46 @@ ensure_dependencies()
 def set_openai_api():
     openai.api_key = os.getenv("AI_PROXY")
     if not openai.api_key:
-        raise EnvironmentError("Please provide a valid OpenAI API key using an environment variable.")
+        raise EnvironmentError("Please set the AI_PROXY environment variable with your OpenAI API key.")
 
 set_openai_api()
 
+# Timeout exception class
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException("Operation timed out!")
+
+signal.signal(signal.SIGALRM, timeout_handler)
+
 # Dynamic prompt generation
-def generate_llm_prompt(data_summary, null_summary, skewness, kurtosis):
+def generate_llm_prompt(data_summary, analysis_results):
     return (
-        f"You are an expert data analyst. Analyze the following dataset:\n\n"
-        f"Dataset Summary:\n{data_summary}\n\n"
-        f"Null Values:\n{null_summary}\n\n"
-        f"Skewness and Kurtosis:\n"
-        f"Skewness:\n{skewness}\nKurtosis:\n{kurtosis}\n\n"
-        f"Provide detailed insights, implications, and suggest further analyses. Ensure results are logical and actionable."
+        f"Analyze the following dataset summary and results:\n"
+        f"\nDataset Summary:\n{data_summary}\n"
+        f"\nAnalysis Results:\n{analysis_results}\n"
+        f"\nProvide insights, implications, and suggest further analysis."
     )
 
-# Retry mechanism for LLM interaction
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def interact_with_llm(prompt):
-    try:
-        signal.alarm(10)  # Set timeout to 10 seconds
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
-            max_tokens=500
-        )
-        signal.alarm(0)  # Cancel timeout
-        return response.choices[0].text.strip()
-    except TimeoutException:
-        print("LLM interaction timed out. Retrying...")
-        raise
-    except Exception as e:
-        print(f"Error interacting with LLM: {e}")
-        sys.exit(1)
-
-# Analyze dataset dynamically
+# Analyze dataset
 def analyze_dataset(file_path):
     try:
         data = pd.read_csv(file_path)
         summary = data.describe(include='all').transpose()
         null_values = data.isnull().sum()
-
-        # Skewness and kurtosis
-        numeric_cols = data.select_dtypes(include=['float64', 'int64'])
-        skewness = numeric_cols.skew()
-        kurtosis = numeric_cols.kurtosis()
-
+        
         # Correlation heatmap
-        if not numeric_cols.empty:
-            plt.figure(figsize=(10, 6))
-            correlation = numeric_cols.corr()
-            sns.heatmap(correlation, annot=True, cmap="coolwarm", fmt=".2f")
-            plt.title("Correlation Heatmap")
-            heatmap_path = f"{os.path.splitext(file_path)[0]}_correlation.png"
-            plt.savefig(heatmap_path)
-            plt.close()
-        else:
-            heatmap_path = None
+        plt.figure(figsize=(10, 6))
+        correlation = data.corr()
+        sns.heatmap(correlation, annot=True, cmap="coolwarm", fmt=".2f")
+        plt.title("Correlation Heatmap")
+        heatmap_path = f"{os.path.splitext(file_path)[0]}_correlation.png"
+        plt.savefig(heatmap_path)
+        plt.close()
 
-        # Outlier detection (only for numeric columns)
-        for col in numeric_cols.columns:
+        # Outlier detection
+        for col in data.select_dtypes(include=['float64', 'int64']).columns:
             plt.figure(figsize=(10, 4))
             sns.boxplot(x=data[col])
             plt.title(f"Outliers in {col}")
@@ -98,22 +69,20 @@ def analyze_dataset(file_path):
             plt.savefig(boxplot_path)
             plt.close()
 
-        return data, summary, null_values, skewness, kurtosis, heatmap_path
+        return data, summary, null_values, heatmap_path
 
     except Exception as e:
         print(f"Error during dataset analysis: {e}")
         sys.exit(1)
 
 # Generate README
-def generate_readme(file_path, summary, null_values, insights, skewness, kurtosis):
+def generate_readme(file_path, summary, null_values, insights):
     readme_content = (
         f"# Analysis Report for {file_path}\n\n"
         f"## Dataset Summary\n"
         f"{tabulate(summary, headers='keys', tablefmt='github')}\n\n"
         f"## Null Values\n"
         f"{tabulate(null_values.reset_index(), headers=['Column', 'Null Values'], tablefmt='github')}\n\n"
-        f"## Skewness and Kurtosis\n"
-        f"{tabulate(pd.DataFrame({'Skewness': skewness, 'Kurtosis': kurtosis}).reset_index(), headers=['Column', 'Skewness', 'Kurtosis'], tablefmt='github')}\n\n"
         f"## Insights and Implications\n"
         f"{insights}\n"
     )
@@ -124,6 +93,25 @@ def generate_readme(file_path, summary, null_values, insights, skewness, kurtosi
 
     print(f"README generated at {readme_path}")
 
+# Interact with LLM with retry mechanism
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def interact_with_llm(prompt):
+    try:
+        signal.alarm(120)  # Set timeout for LLM interaction
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=prompt,
+            max_tokens=500
+        )
+        signal.alarm(0)  # Disable timeout after success
+        return response.choices[0].text.strip()
+    except TimeoutException:
+        print("LLM interaction timed out!")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error interacting with LLM: {e}")
+        raise
+
 # Main function
 def main():
     if len(sys.argv) != 2:
@@ -132,19 +120,21 @@ def main():
 
     file_path = sys.argv[1]
 
-    # Dataset Analysis
-    data, summary, null_values, skewness, kurtosis, heatmap_path = analyze_dataset(file_path)
-
-    # Generate prompt and interact with LLM
+    data, summary, null_values, heatmap_path = analyze_dataset(file_path)
+    
+    # Dynamic prompt generation and interaction
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
-    skewness_summary = skewness.to_string()
-    kurtosis_summary = kurtosis.to_string()
-    prompt = generate_llm_prompt(data_summary, null_summary, skewness_summary, kurtosis_summary)
-    insights = interact_with_llm(prompt)
+    prompt = generate_llm_prompt(data_summary, null_summary)
+    
+    try:
+        insights = interact_with_llm(prompt)
+    except Exception as e:
+        print(f"Failed to get insights from LLM: {e}")
+        sys.exit(1)
 
     # Generate README
-    generate_readme(file_path, summary, null_values, insights, skewness, kurtosis)
+    generate_readme(file_path, summary, null_values, insights)
 
 if __name__ == "__main__":
-    main()
+    main()  
