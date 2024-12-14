@@ -18,11 +18,11 @@ def ensure_dependencies():
 
 ensure_dependencies()
 
-# Set API token directly
+# Set API token securely
 def set_openai_api():
-    openai.api_key = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjIyZjMwMDA4NTJAZHMuc3R1ZHkuaWl0bS5hYy5pbiJ9.j20JpSkBVdolU8Npow1aEV4FY9e2NLC_Yvuzydx4viQ"
+    openai.api_key = os.getenv("AI_PROXY")
     if not openai.api_key:
-        raise EnvironmentError("Please provide a valid OpenAI API key.")
+        raise EnvironmentError("Please set the AI_PROXY environment variable with your OpenAI API key.")
 
 set_openai_api()
 
