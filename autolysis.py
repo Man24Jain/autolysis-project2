@@ -5,6 +5,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import openai
 from tabulate import tabulate
+from tenacity import retry, stop_after_attempt, wait_fixed
+import signal
 
 # Ensure seaborn is installed
 def ensure_dependencies():
@@ -23,6 +25,15 @@ def set_openai_api():
         raise EnvironmentError("Please provide a valid OpenAI API key.")
 
 set_openai_api()
+
+# Timeout exception class
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException("Operation timed out!")
+
+signal.signal(signal.SIGALRM, timeout_handler)
 
 # Dynamic prompt generation
 def generate_llm_prompt(data_summary, analysis_results):
@@ -82,18 +93,24 @@ def generate_readme(file_path, summary, null_values, insights):
 
     print(f"README generated at {readme_path}")
 
-# Interact with LLM
+# Interact with LLM with retry mechanism
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def interact_with_llm(prompt):
     try:
+        signal.alarm(120)  # Set timeout for LLM interaction
         response = openai.Completion.create(
             engine="text-davinci-003",
             prompt=prompt,
             max_tokens=500
         )
+        signal.alarm(0)  # Disable timeout after success
         return response.choices[0].text.strip()
+    except TimeoutException:
+        print("LLM interaction timed out!")
+        sys.exit(1)
     except Exception as e:
         print(f"Error interacting with LLM: {e}")
-        sys.exit(1)
+        raise
 
 # Main function
 def main():
@@ -109,7 +126,12 @@ def main():
     data_summary = summary.to_string()
     null_summary = null_values.to_string()
     prompt = generate_llm_prompt(data_summary, null_summary)
-    insights = interact_with_llm(prompt)
+    
+    try:
+        insights = interact_with_llm(prompt)
+    except Exception as e:
+        print(f"Failed to get insights from LLM: {e}")
+        sys.exit(1)
 
     # Generate README
     generate_readme(file_path, summary, null_values, insights)
