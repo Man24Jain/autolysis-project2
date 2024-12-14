@@ -10,13 +10,19 @@ import signal
 import cv2
 import numpy as np
 
-# Ensure seaborn is installed
+import sys
+import subprocess
+
 def ensure_dependencies():
-    try:
-        import seaborn
-    except ImportError:
-        print("Seaborn is not installed. Please install it using 'pip install seaborn'.")
-        sys.exit(1)
+    required_packages = ["seaborn", "numpy", "pandas", "opencv-python", "matplotlib", "tabulate", "tenacity", "openai"]
+    for package in required_packages:
+        try:
+            __import__(package)
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+ensure_dependencies()
+
 
 ensure_dependencies()
 
