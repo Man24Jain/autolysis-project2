@@ -1,117 +1,166 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "seaborn",
+#   "pandas",
+#   "matplotlib",
+#   "httpx",
+#   "chardet",
+#   "numpy",
+# ]
+# ///
+
 import os
 import sys
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.pyplot as plt
 import openai
-from dotenv import load_dotenv
+from tabulate import tabulate
 from tenacity import retry, stop_after_attempt, wait_fixed
+import signal
+import subprocess
 
-# Load environment variables
-load_dotenv()
-API_PROXY_TOKEN = os.getenv("AIPROXY_TOKEN")
-
-if not API_PROXY_TOKEN:
-    raise EnvironmentError("AIPROXY_TOKEN not found in environment variables.")
-
-openai.api_key = API_PROXY_TOKEN
-
-# Ensure all required dependencies are installed
+# Ensure seaborn is installed
 def ensure_dependencies():
     try:
         import seaborn
     except ImportError:
-        os.system('pip install seaborn')
-        print("Seaborn installed.")
+        print("Seaborn is not installed. Installing now...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "seaborn"])
 
 ensure_dependencies()
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
-def analyze_with_llm(prompt):
-    """Send a prompt to the AI proxy and return its response."""
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "You are a data analysis assistant."},
-                  {"role": "user", "content": prompt}],
-        max_tokens=1500,
-        temperature=0.7,
-        timeout=120  # Extend timeout to allow detailed analysis
+# Set API token securely
+def set_openai_api():
+    openai.api_key = os.getenv("AIPROXY_TOKEN")
+    if not openai.api_key:
+        raise EnvironmentError("Please set the AIPROXY_TOKEN environment variable with your OpenAI API key.")
+
+set_openai_api()
+
+# Timeout exception class
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException("Operation timed out!")
+
+signal.signal(signal.SIGALRM, timeout_handler)
+
+# Dynamic prompt generation with robust instructions
+def generate_llm_prompt(data_summary, null_values):
+    return (
+        f"You are a highly intelligent and creative data analyst. Analyze the dataset described below thoroughly and provide actionable insights. "
+        f"Your response should include:\n"
+        f"1. Patterns, trends, or anomalies in the data.\n"
+        f"2. Key statistical findings supported with reasoning.\n"
+        f"3. Implications of these findings in practical terms.\n"
+        f"4. A summary conclusion with actionable steps.\n\n"
+        f"Dataset Summary:\n{data_summary}\n\n"
+        f"Null Values Summary:\n{null_values}\n\n"
+        f"Ensure your insights are clear, concise, actionable, and creatively engaging. Include unique examples and perspectives."
     )
-    return response["choices"][0]["message"]["content"]
 
-def generate_analysis(data):
-    """Perform basic analysis and use LLM for insights."""
-    # Basic pandas profiling
-    description = data.describe(include='all').to_string()
-    data_info = []
-    data.info(buf=data_info.append)
-    data_info = "\n".join(data_info)
+# Analyze dataset with reproducibility
+def analyze_dataset(file_path):
+    try:
+        data = pd.read_csv(file_path)
+        summary = data.describe(include='all').transpose()
+        null_values = data.isnull().sum()
 
-    # Prompt construction
-    llm_prompt = f"""
-    I have the following dataset description:\n\n{description}\n\nAnd the following data info:\n\n{data_info}\n\n
-    Please provide detailed insights, anomalies, patterns, and any recommended visualizations or analysis steps.
-    Make the response engaging and unique.
-    The response should include storytelling elements where relevant.
-    """
-
-    llm_response = analyze_with_llm(llm_prompt)
-    return llm_response
-
-def generate_visualizations(data, output_dir):
-    """Generate and save visualizations based on the dataset."""
-    sns.set(style="whitegrid")
-
-    for column in data.select_dtypes(include=['number']).columns:
-        plt.figure(figsize=(8, 6))
-        sns.histplot(data[column], kde=True, color='blue')
-        plt.title(f"Distribution of {column}")
-        plt.xlabel(column)
-        plt.ylabel("Frequency")
-        output_path = os.path.join(output_dir, f"{column}_distribution.png")
-        plt.savefig(output_path)
+        # Correlation heatmap
+        plt.figure(figsize=(10, 6))
+        correlation = data.corr()
+        sns.heatmap(correlation, annot=True, cmap="coolwarm", fmt=".2f")
+        plt.title("Correlation Heatmap")
+        heatmap_path = f"{os.path.splitext(file_path)[0]}_correlation.png"
+        plt.savefig(heatmap_path)
         plt.close()
 
-    print(f"Visualizations saved to {output_dir}")
+        # Outlier detection
+        for col in data.select_dtypes(include=['float64', 'int64']).columns:
+            plt.figure(figsize=(10, 4))
+            sns.boxplot(x=data[col])
+            plt.title(f"Outliers in {col}")
+            boxplot_path = f"{os.path.splitext(file_path)[0]}_{col}_boxplot.png"
+            plt.savefig(boxplot_path)
+            plt.close()
 
+        return data, summary, null_values, heatmap_path
+
+    except Exception as e:
+        print(f"Error during dataset analysis: {e}")
+        sys.exit(1)
+
+# Generate README
+def generate_readme(file_path, summary, null_values, insights):
+    readme_content = (
+        f"# Analysis Report for {file_path}\n\n"
+        f"## Dataset Summary\n"
+        f"{tabulate(summary, headers='keys', tablefmt='github')}\n\n"
+        f"## Null Values\n"
+        f"{tabulate(null_values.reset_index(), headers=['Column', 'Null Values'], tablefmt='github')}\n\n"
+        f"## Insights and Implications\n"
+        f"{insights}\n"
+    )
+
+    readme_path = f"{os.path.splitext(file_path)[0]}_README.md"
+    with open(readme_path, "w") as f:
+        f.write(readme_content)
+
+    print(f"README generated at {readme_path}")
+
+# Interact with LLM with retry mechanism and cost management
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def interact_with_llm(prompt):
+    try:
+        signal.alarm(120)  # Set timeout for LLM interaction
+        response = openai.Completion.create(
+            engine="gpt-4o-mini",
+            prompt=prompt,
+            max_tokens=2000,  # Increased token limit for deeper analysis
+            temperature=0.7,  # Slight variability for diverse responses
+            n=1
+        )
+        signal.alarm(0)  # Disable timeout after success
+
+        # Check cost of response
+        monthly_cost = response.get("usage", {}).get("monthlyCost", 0)
+        if monthly_cost > 5.0:
+            raise ValueError("Monthly cost exceeds the budget of $5. Consider optimizing prompts.")
+
+        return response.choices[0].text.strip()
+    except TimeoutException:
+        print("LLM interaction timed out!")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error interacting with LLM: {e}")
+        raise
+
+# Main function
 def main():
     if len(sys.argv) != 2:
-        print("Usage: uv run autolysis.py <csv_filename>")
+        print("Usage: uv run autolysis.py <dataset.csv>")
         sys.exit(1)
 
-    csv_filename = sys.argv[1]
+    file_path = sys.argv[1]
 
-    if not os.path.exists(csv_filename):
-        print(f"File not found: {csv_filename}")
-        sys.exit(1)
+    data, summary, null_values, heatmap_path = analyze_dataset(file_path)
 
-    # Load the data
+    # Dynamic prompt generation and interaction
+    data_summary = summary.to_string()
+    null_summary = null_values.to_string()
+    prompt = generate_llm_prompt(data_summary, null_summary)
+
     try:
-        data = pd.read_csv(csv_filename)
+        insights = interact_with_llm(prompt)
     except Exception as e:
-        print(f"Error loading CSV: {e}")
+        print(f"Failed to get insights from LLM: {e}")
         sys.exit(1)
 
-    # Create output directory for visualizations
-    output_dir = "visualizations"
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Generate analysis
-    try:
-        llm_response = generate_analysis(data)
-        print("\nLLM Analysis:\n", llm_response)
-
-        # Write the LLM response to README.md
-        with open("README.md", "w") as readme_file:
-            readme_file.write("# Analysis Report\n\n")
-            readme_file.write(llm_response)
-
-        # Generate visualizations
-        generate_visualizations(data, output_dir)
-
-    except Exception as e:
-        print(f"Error during analysis: {e}")
-        sys.exit(1)
+    # Generate README
+    generate_readme(file_path, summary, null_values, insights)
 
 if __name__ == "__main__":
     main()
