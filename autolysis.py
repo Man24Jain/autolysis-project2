@@ -8,8 +8,9 @@ from tabulate import tabulate
 from tenacity import retry, stop_after_attempt, wait_fixed
 import signal
 import subprocess
-import random
 import string
+import random
+
 
 # Ensure seaborn is installed
 def ensure_dependencies():
