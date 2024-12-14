@@ -1,129 +1,118 @@
+import os
+import sys
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import openai
-import os
+from tabulate import tabulate
 
-# Set OpenAI API key (make sure to set your key here)
-openai.api_key = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjIyZjMwMDA4NTJAZHMuc3R1ZHkuaWl0bS5hYy5pbiJ9.j20JpSkBVdolU8Npow1aEV4FY9e2NLC_Yvuzydx4viQ"
-
-def load_dataset(file_path):
-    """Loads the dataset from the given file path."""
+# Ensure seaborn is installed
+def ensure_dependencies():
     try:
-        return pd.read_csv(file_path)
-    except Exception as e:
-        raise FileNotFoundError(f"Error loading file: {e}")
+        import seaborn
+    except ImportError:
+        print("Seaborn is not installed. Please install it using 'pip install seaborn'.")
+        sys.exit(1)
 
-def generate_summary_statistics(df):
-    """Generates summary statistics for the dataset."""
-    summary = df.describe(include='all').T
-    return summary
+ensure_dependencies()
 
-def detect_outliers(df):
-    """Detects outliers in the dataset."""
-    outlier_counts = {}
-    for col in df.select_dtypes(include=['float', 'int']):
-        Q1 = df[col].quantile(0.25)
-        Q3 = df[col].quantile(0.75)
-        IQR = Q3 - Q1
-        outliers = df[(df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)]
-        outlier_counts[col] = len(outliers)
-    return outlier_counts
+# Set API token directly
+def set_openai_api():
+    openai.api_key = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjIyZjMwMDA4NTJAZHMuc3R1ZHkuaWl0bS5hYy5pbiJ9.j20JpSkBVdolU8Npow1aEV4FY9e2NLC_Yvuzydx4viQ"
+    if not openai.api_key:
+        raise EnvironmentError("Please provide a valid OpenAI API key.")
 
-def visualize_data(df):
-    """Creates visualizations and saves them as PNG files."""
-    os.makedirs("visualizations", exist_ok=True)
+set_openai_api()
 
-    # Correlation heatmap
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(df.corr(), annot=True, cmap='coolwarm', fmt=".2f")
-    plt.title("Correlation Heatmap")
-    plt.savefig("visualizations/correlation_heatmap.png")
-
-    # Pairplot
-    sns.pairplot(df.select_dtypes(include=['float', 'int']).dropna(), diag_kind='kde')
-    plt.savefig("visualizations/pairplot.png")
-
-    # Outlier detection visualizations
-    for col in df.select_dtypes(include=['float', 'int']):
-        plt.figure(figsize=(8, 4))
-        sns.boxplot(x=df[col])
-        plt.title(f"Boxplot of {col}")
-        plt.savefig(f"visualizations/boxplot_{col}.png")
-
-    print("Visualizations saved in the 'visualizations' directory.")
-
-def interact_with_llm(prompt):
-    """Interacts with the LLM to generate narrative or code."""
-    response = openai.ChatCompletion.create(
-        model="gpt-4",  # Adjust as needed
-        messages=[
-            {"role": "system", "content": "You are an expert data analyst."},
-            {"role": "user", "content": prompt}
-        ]
+# Dynamic prompt generation
+def generate_llm_prompt(data_summary, analysis_results):
+    return (
+        f"Analyze the following dataset summary and results:\n"
+        f"\nDataset Summary:\n{data_summary}\n"
+        f"\nAnalysis Results:\n{analysis_results}\n"
+        f"\nProvide insights, implications, and suggest further analysis."
     )
-    return response['choices'][0]['message']['content']
 
-def generate_readme(df, summary, outliers):
-    """Generates a README.md file narrating the analysis."""
-    narrative_prompt = f"""
-    Analyze the following dataset summary and outlier counts:
+# Analyze dataset
+def analyze_dataset(file_path):
+    try:
+        data = pd.read_csv(file_path)
+        summary = data.describe(include='all').transpose()
+        null_values = data.isnull().sum()
+        
+        # Correlation heatmap
+        plt.figure(figsize=(10, 6))
+        correlation = data.corr()
+        sns.heatmap(correlation, annot=True, cmap="coolwarm", fmt=".2f")
+        plt.title("Correlation Heatmap")
+        heatmap_path = f"{os.path.splitext(file_path)[0]}_correlation.png"
+        plt.savefig(heatmap_path)
+        plt.close()
 
-    Summary:
-    {summary}
+        # Outlier detection
+        for col in data.select_dtypes(include=['float64', 'int64']).columns:
+            plt.figure(figsize=(10, 4))
+            sns.boxplot(x=data[col])
+            plt.title(f"Outliers in {col}")
+            boxplot_path = f"{os.path.splitext(file_path)[0]}_{col}_boxplot.png"
+            plt.savefig(boxplot_path)
+            plt.close()
 
-    Outliers:
-    {outliers}
+        return data, summary, null_values, heatmap_path
 
-    Generate a narrative about the key trends, correlations, and anomalies. Make it engaging and informative.
-    """
-    narrative = interact_with_llm(narrative_prompt)
+    except Exception as e:
+        print(f"Error during dataset analysis: {e}")
+        sys.exit(1)
 
-    readme_content = f"""
-    # Dataset Analysis
+# Generate README
+def generate_readme(file_path, summary, null_values, insights):
+    readme_content = (
+        f"# Analysis Report for {file_path}\n\n"
+        f"## Dataset Summary\n"
+        f"{tabulate(summary, headers='keys', tablefmt='github')}\n\n"
+        f"## Null Values\n"
+        f"{tabulate(null_values.reset_index(), headers=['Column', 'Null Values'], tablefmt='github')}\n\n"
+        f"## Insights and Implications\n"
+        f"{insights}\n"
+    )
 
-    ## Summary Statistics
-    ```
-    {summary.to_string()}
-    ```
-
-    ## Outlier Analysis
-    ```
-    {outliers}
-    ```
-
-    ## Narrative
-    {narrative}
-
-    ## Visualizations
-    ![Correlation Heatmap](visualizations/correlation_heatmap.png)
-    ![Pairplot](visualizations/pairplot.png)
-    For individual boxplots, check the 'visualizations' folder.
-    """
-    with open("README.md", "w") as f:
+    readme_path = f"{os.path.splitext(file_path)[0]}_README.md"
+    with open(readme_path, "w") as f:
         f.write(readme_content)
 
-    print("README.md generated successfully.")
+    print(f"README generated at {readme_path}")
+
+# Interact with LLM
+def interact_with_llm(prompt):
+    try:
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=prompt,
+            max_tokens=500
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        print(f"Error interacting with LLM: {e}")
+        sys.exit(1)
+
+# Main function
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python autolysis.py <dataset.csv>")
+        sys.exit(1)
+
+    file_path = sys.argv[1]
+
+    data, summary, null_values, heatmap_path = analyze_dataset(file_path)
+    
+    # Dynamic prompt generation and interaction
+    data_summary = summary.to_string()
+    null_summary = null_values.to_string()
+    prompt = generate_llm_prompt(data_summary, null_summary)
+    insights = interact_with_llm(prompt)
+
+    # Generate README
+    generate_readme(file_path, summary, null_values, insights)
 
 if __name__ == "__main__":
-    # Input dataset file
-    file_path = input("Enter the dataset file path (e.g., data.csv): ")
-
-    try:
-        # Load dataset
-        df = load_dataset(file_path)
-
-        # Generate summary statistics
-        summary = generate_summary_statistics(df)
-
-        # Detect outliers
-        outliers = detect_outliers(df)
-
-        # Visualize data
-        visualize_data(df)
-
-        # Generate README.md
-        generate_readme(df, summary, outliers)
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    main()
