@@ -1,15 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "seaborn",
-#   "pandas",
-#   "matplotlib",
-#   "httpx",
-#   "chardet",
-#   "numpy",
-# ]
-# ///
-
 import os
 import sys
 import pandas as pd
@@ -51,15 +39,14 @@ signal.signal(signal.SIGALRM, timeout_handler)
 # Dynamic prompt generation with robust instructions
 def generate_llm_prompt(data_summary, null_values):
     return (
-        f"You are a highly intelligent and creative data analyst. Analyze the dataset described below thoroughly and provide actionable insights. "
-        f"Your response should include:\n"
-        f"1. Patterns, trends, or anomalies in the data.\n"
-        f"2. Key statistical findings supported with reasoning.\n"
-        f"3. Implications of these findings in practical terms.\n"
-        f"4. A summary conclusion with actionable steps.\n\n"
+        f"You are a data analyst. Analyze the dataset described below and provide insights. "
+        f"The response should include:\n"
+        f"1. Patterns or anomalies in the data.\n"
+        f"2. Key statistical findings.\n"
+        f"3. Implications of these findings.\n\n"
         f"Dataset Summary:\n{data_summary}\n\n"
         f"Null Values Summary:\n{null_values}\n\n"
-        f"Ensure your insights are clear, concise, actionable, and creatively engaging. Include unique examples and perspectives."
+        f"Ensure insights are clear, concise, and actionable."
     )
 
 # Analyze dataset with reproducibility
@@ -111,7 +98,7 @@ def generate_readme(file_path, summary, null_values, insights):
 
     print(f"README generated at {readme_path}")
 
-# Interact with LLM with retry mechanism and cost management
+# Interact with LLM with retry mechanism
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def interact_with_llm(prompt):
     try:
@@ -119,17 +106,11 @@ def interact_with_llm(prompt):
         response = openai.Completion.create(
             engine="gpt-4o-mini",
             prompt=prompt,
-            max_tokens=2000,  # Increased token limit for deeper analysis
-            temperature=0.7,  # Slight variability for diverse responses
+            max_tokens=1500,  # Increased token limit for thorough analysis
+            temperature=0.7,  # Added variability for richer responses
             n=1
         )
         signal.alarm(0)  # Disable timeout after success
-
-        # Check cost of response
-        monthly_cost = response.get("usage", {}).get("monthlyCost", 0)
-        if monthly_cost > 5.0:
-            raise ValueError("Monthly cost exceeds the budget of $5. Consider optimizing prompts.")
-
         return response.choices[0].text.strip()
     except TimeoutException:
         print("LLM interaction timed out!")
@@ -163,4 +144,4 @@ def main():
     generate_readme(file_path, summary, null_values, insights)
 
 if __name__ == "__main__":
-    main()
+    main() 
